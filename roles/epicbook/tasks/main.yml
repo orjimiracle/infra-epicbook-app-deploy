@@ -1,12 +1,35 @@
 ---
+# 1. PREPARE DIRECTORY
+- name: Ensure the parent directory exists
+  become: yes
+  file:
+    path: "{{ app_dest }}"
+    state: directory
+    owner: azureuser
+    group: azureuser
+    mode: '0755'
 
+# 2. CLONE CODE
+- name: Clone the EpicBook repository
+  git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_dest }}"
+    version: main
+    force: yes
+  become: yes
+  become_user: azureuser
 
-# ... (previous tasks remain the same)
+# 3. DOWNLOAD SSL CERT (Fix: Added validate_certs and become)
+- name: Download Azure MySQL CA Certificate
+  get_url:
+    url: https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem
+    dest: "{{ app_dest }}/config/azure-db-ca.pem"
+    owner: azureuser
+    mode: '0644'
+    validate_certs: yes
+  become: yes
 
-- name: Debug variables for config path
-  debug:
-    msg: "Targeting config at: {{ app_dest }}/config/config.json"
-
+# 4. CONFIGURE DATABASE CONNECTION
 - name: Configure Sequelize database connection with SSL
   template:
     src: config.json.j2
@@ -14,50 +37,23 @@
     owner: azureuser
     group: azureuser
     mode: '0644'
-    force: yes  # Explicitly tell Ansible to overwrite the file
-  register: template_output
-
-- name: Show template status
-  debug:
-    var: template_output.changed
-
-# ... (rest of the tasks)
-- name: Clone the EpicBook repository
-  git:
-    repo: "{{ app_repo }}"
-    dest: "{{ app_dest }}"
-    version: main
     force: yes
+  become: yes
 
-- name: Ensure azureuser owns the app directory
-  file:
-    path: "{{ app_dest }}"
-    owner: azureuser
-    group: azureuser
-    recurse: yes
-
+# 5. INITIALIZE DATABASE
 - name: Create the bookstore database if it does not exist
   shell: "mysql -h {{ db_host }} -u {{ db_user }} -p'{{ db_pass }}' -e 'CREATE DATABASE IF NOT EXISTS {{ db_name }};'"
   register: create_db_result
   changed_when: "'1 row affected' in create_db_result.stdout"
 
-#- name: Download Azure MySQL CA Certificate
-  #get_url:
-    #url: https://dl.cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem
-    #dest: "{{ app_dest }}/config/azure-db-ca.pem"
-   # owner: azureuser
-    #mode: '0644'
-
+# 6. INSTALL DEPENDENCIES
 - name: Install NPM dependencies
   npm:
     path: "{{ app_dest }}"
+  become: yes
+  become_user: azureuser
 
-- name: Configure Sequelize database connection with SSL
-  template:
-    src: config.json.j2
-    dest: "{{ app_dest }}/config/config.json"
-    owner: azureuser
-
+# 7. SEED TABLES
 - name: Check if database tables already exist
   shell: "mysql -h {{ db_host }} -u {{ db_user }} -p'{{ db_pass }}' {{ db_name }} -e 'SHOW TABLES;'"
   register: db_check
@@ -71,7 +67,8 @@
     - books_seed.sql
   when: "db_check.stdout == ''"
 
-- name: Manage EpicBook process with PM2 as azureuser
+# 8. START THE APPLICATION
+- name: Manage EpicBook process with PM2
   shell: |
     export HOME=/home/azureuser
     pm2 delete epicbook || true
