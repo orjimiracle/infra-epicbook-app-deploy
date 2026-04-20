@@ -1,0 +1,10 @@
+---
+# App Config
+app_repo: "https://github.com/pravinmishraaws/theepicbook.git"
+app_dest: "/var/www/epicbook"
+
+# DB Config (From your Terraform outputs)
+db_host: "epicbook-server-i8mgds.mysql.database.azure.com"
+db_name: "bookstore"
+db_user: "mysqladmin"
+db_pass: "StrongPassword123!" # Best practice: Use Ansible Vault here later!
